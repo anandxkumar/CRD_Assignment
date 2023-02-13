@@ -70,6 +70,7 @@ func NewController(kubeClient kubernetes.Interface, tpodClient tClientSet.Interf
 	}
 
 	// event handler when the trackPod resources are added/deleted/updated.
+	// this function will be called
 	tpodInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: c.handleAdd,
@@ -96,6 +97,7 @@ func (c *Controller) Run(ch chan struct{}) error {
 	if ok := cache.WaitForCacheSync(ch, c.tpodSync); !ok {
 		log.Println("cache was not synced")
 	}
+	// running go routine
 	go wait.Until(c.worker, time.Second, ch)
 	<-ch
 	return nil
@@ -332,11 +334,11 @@ func newPod(tpod *v1alpha1.Kluster) *corev1.Pod {
 }
 
 func (c *Controller) handleAdd(obj interface{}) {
-	log.Println("handleAdd is here!!!")
+	log.Println("handleAdd was called")
 	c.wq.Add(obj)
 }
 
 func (c *Controller) handleDel(obj interface{}) {
-	log.Println("handleDel is here!!")
+	log.Println("handleDel was deleted")
 	c.wq.Done(obj)
 }

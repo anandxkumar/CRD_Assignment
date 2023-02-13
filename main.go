@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"time"
 
 	klient "github.com/anandxkumar/kluster/pkg/client/clientset/versioned"
+	kInfFac "github.com/anandxkumar/kluster/pkg/client/informers/externalversions"
+	"github.com/anandxkumar/kluster/pkg/controller"
 	"golang.org/x/net/context"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
@@ -42,4 +45,13 @@ func main() {
 	}
 
 	log.Printf("Listing clusters is: %d \n", len(clusters.Items))
+
+	infoFactory := kInfFac.NewSharedInformerFactory(klientset, 20*time.Minute)
+	ch := make(chan struct{})
+	c := controller.NewController(klientset, infoFactory.Ak().V1alpha1().Klusters())
+
+	infoFactory.Start(ch)
+	if err := c.Run(ch); err != nil {
+		log.Printf("Error running controller %s \n", err.Error())
+	}
 }

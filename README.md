@@ -47,3 +47,10 @@ klusters                          kl           ak.dev/v1alpha1                  
 - To run main.go `./kluster`
 
 
+- To Fix `client/listers/kluster.go `resource error, go create a function in `pkg/apis/ak.dev/v1alpha1/register.go `
+```
+func Resource(resource string) schema.GroupResource {
+	return SchemeGroupVersion.WithResource(resource).GroupResource()
+}
+```
+
