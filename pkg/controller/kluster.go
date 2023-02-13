@@ -160,7 +160,7 @@ func (c *Controller) processNextItem() bool {
 	// fmt.Println("Calling updateStatus now!!")
 	// err = c.updateStatus(tpod, "creating", pList)
 	// if err != nil {
-	// 	log.Printf("error %s, updating status of the TrackPod %s\n", err.Error(), tpod.Name)
+	// 	log.Printf("error %s, updating Spec of the TrackPod %s\n", err.Error(), tpod.Name)
 	// }
 
 	fmt.Println("calling wait for pods")
@@ -170,10 +170,10 @@ func (c *Controller) processNextItem() bool {
 		log.Printf("error %s, waiting for pods to meet the expected state", err.Error())
 	}
 
-	fmt.Println("Calling update status again!!")
+	fmt.Println("Calling update Spec again!!")
 	err = c.updateStatus(tpod, tpod.Spec.Message, pList)
 	if err != nil {
-		log.Printf("error %s updating status after waiting for Pods", err.Error())
+		log.Printf("error %s updating Spec after waiting for Pods", err.Error())
 	}
 
 	return true
@@ -194,7 +194,7 @@ func (c *Controller) totalRunningPods(tpod *v1alpha1.Kluster) int {
 
 	runningPods := 0
 	for _, pod := range pList.Items {
-		if pod.ObjectMeta.DeletionTimestamp.IsZero() && pod.Status.Phase == "Running" {
+		if pod.ObjectMeta.DeletionTimestamp.IsZero() && pod.Spec.Phase == "Running" {
 			runningPods++
 		}
 	}
@@ -202,7 +202,7 @@ func (c *Controller) totalRunningPods(tpod *v1alpha1.Kluster) int {
 }
 
 // If the pod doesn't switch to a running state within 10 minutes, shall report the error.
-func (c *Controller) waitForPods(tpod *v1.TrackPod, pList *corev1.PodList) error {
+func (c *Controller) waitForPods(tpod *v1alpha1.Kluster, pList *corev1.PodList) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -217,18 +217,18 @@ func (c *Controller) waitForPods(tpod *v1.TrackPod, pList *corev1.PodList) error
 	})
 }
 
-// Updates the status section of TrackPod
-func (c *Controller) updateStatus(tpod *v1.TrackPod, progress string, pList *corev1.PodList) error {
-	t, err := c.tpodClient.AjV1().TrackPods(tpod.Namespace).Get(context.Background(), tpod.Name, metav1.GetOptions{})
+// Updates the Spec section of TrackPod
+func (c *Controller) updateStatus(tpod *v1alpha1.Kluster, progress string, pList *corev1.PodList) error {
+	t, err := c.tpodClient.AkV1alpha1().Klusters(tpod.Namespace).Get(context.Background(), tpod.Name, metav1.GetOptions{})
 	trunningPods := c.totalRunningPods(tpod)
 	if err != nil {
 		return err
 	}
 
-	t.Status.Count = trunningPods
-	t.Status.Message = progress
-	fmt.Println("Inside updatestatus >>>>>>>>>>> ", t.Status.Message)
-	_, err = c.tpodClient.AjV1().TrackPods(tpod.Namespace).UpdateStatus(context.Background(), t, metav1.UpdateOptions{})
+	t.Spec.Count = trunningPods
+	t.Spec.Message = progress
+	fmt.Println("Inside UpdateSpec >>>>>>>>>>> ", t.Spec.Message)
+	_, err = c.tpodClient.AkV1alpha1().Klusters(tpod.Namespace).UpdateStatus(context.Background(), t, metav1.UpdateOptions{})
 
 	return err
 }
@@ -243,8 +243,8 @@ func (c *Controller) syncHandler(tpod *v1alpha1.Kluster, pList *corev1.PodList) 
 	fmt.Println("Inside syncHandler >>>>>>>>>>>>>>>>>>>>> runningPods ----> ", runningPods)
 	fmt.Println("======================> tpod.Count ::: ", tpod.Spec.Count)
 
-	if runningPods < tpod.Spec.Count || tpod.Spec.Message != tpod.Status.Message {
-		if tpod.Spec.Message != tpod.Status.Message {
+	if runningPods < tpod.Spec.Count || tpod.Spec.Message != tpod.Spec.Message {
+		if tpod.Spec.Message != tpod.Spec.Message {
 			podDelete = true
 			podCreate = true
 			iterate = tpod.Spec.Count
