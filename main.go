@@ -2,17 +2,17 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"log"
 	"path/filepath"
 	"time"
 
-	klient "github.com/anandxkumar/kluster/pkg/client/clientset/versioned"
-	kInfFac "github.com/anandxkumar/kluster/pkg/client/informers/externalversions"
-	"github.com/anandxkumar/kluster/pkg/controller"
-	"golang.org/x/net/context"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "github.com/anandxkumar/kluster/pkg/client/clientset/versioned"
+	informers "github.com/anandxkumar/kluster/pkg/client/informers/externalversions"
+	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog"
+
+	"github.com/anandxkumar/kluster/pkg/controller"
 	"k8s.io/client-go/util/homedir"
 )
 
@@ -26,32 +26,36 @@ func main() {
 	}
 	flag.Parse()
 
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
-	if err != nil {
-		log.Printf("Building config from flags, %s", err.Error())
-	}
-
-	klientset, err := klient.NewForConfig(config)
-	if err != nil {
-		log.Printf(" Getting Client set %s \n", err.Error())
-	}
-
-	fmt.Println(klientset)
-
-	clusters, err := klientset.AkV1alpha1().Klusters("").List(context.Background(), metav1.ListOptions{})
+	cfg, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 
 	if err != nil {
-		log.Printf("Listing clusters Error: %s \n", err.Error())
+		klog.Fatalf("Error building kubeconfig: %s", err.Error())
 	}
 
-	log.Printf("Listing clusters is: %d \n", len(clusters.Items))
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
+	}
 
-	infoFactory := kInfFac.NewSharedInformerFactory(klientset, 20*time.Minute)
-	ch := make(chan struct{})
-	c := controller.NewController(klientset, infoFactory.Ak().V1alpha1().Klusters())
+	exampleClient, err := clientset.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatalf("Error building example clientset: %s", err.Error())
+	}
 
-	infoFactory.Start(ch)
-	if err := c.Run(ch); err != nil {
-		log.Printf("Error running controller %s \n", err.Error())
+	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
+	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
+
+	controller := controller.NewController(kubeClient, exampleClient,
+		kubeInformerFactory.Apps().V1().Deployments(),
+		exampleInformerFactory.Ak().V1alpha1().Klusters())
+
+	stopCh := make(chan struct{})
+	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
+	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.
+	kubeInformerFactory.Start(stopCh)
+	exampleInformerFactory.Start(stopCh)
+
+	if err = controller.Run(2, stopCh); err != nil {
+		klog.Fatalf("Error running controller: %s", err.Error())
 	}
 }

@@ -3,5 +3,5 @@ kind: Kluster
 metadata:
   name: kluster-1
 spec:
-  message: "Adding New field message into the Kluster object"
-  count: 12
+  message: "Updated Adding New field message into the Kluster object"
+  count: 15

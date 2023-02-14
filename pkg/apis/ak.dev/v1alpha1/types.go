@@ -16,7 +16,7 @@ type Kluster struct {
 
 type KlusterSpec struct {
 	Message string `json:"message"`
-	Count   int    `json:"count"`
+	Count   *int32 `json:"count"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
