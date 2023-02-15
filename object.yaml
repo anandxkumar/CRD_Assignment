@@ -1,7 +1,7 @@
 apiVersion: "ak.dev/v1alpha1"
 kind: Kluster
 metadata:
-  name: kluster-1
+  name: kluster-8
 spec:
-  message: "Updated Adding New field message into the Kluster object"
-  count: 15
+  message: "NewTest -2"
+  count: 2

@@ -13,6 +13,7 @@ import (
 	"k8s.io/klog"
 
 	"github.com/anandxkumar/kluster/pkg/controller"
+	// "github.com/anandxkumar/kluster/pkg/signals"
 	"k8s.io/client-go/util/homedir"
 )
 
@@ -25,6 +26,7 @@ func main() {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
 	flag.Parse()
+	// stopCh := signals.SetupSignalHandler()
 
 	cfg, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 
@@ -55,7 +57,7 @@ func main() {
 	kubeInformerFactory.Start(stopCh)
 	exampleInformerFactory.Start(stopCh)
 
-	if err = controller.Run(2, stopCh); err != nil {
+	if err = controller.Run(1, stopCh); err != nil {
 		klog.Fatalf("Error running controller: %s", err.Error())
 	}
 }
