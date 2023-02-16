@@ -194,26 +194,26 @@ func (c *Controller) processNextWorkItem() bool {
 		return false
 	}
 
-	tpod, err := c.foosLister.Klusters(ns).Get(name)
+	foo, err := c.foosLister.Klusters(ns).Get(name)
 	if err != nil {
-		klog.Errorf("error %s, Getting the tpod resource from lister.", err.Error())
+		klog.Errorf("error %s, Getting the foo resource from lister.", err.Error())
 		return false
 	}
 
 	// filter out if required pods are already available or not:
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{
-			"controller": tpod.Name,
+			"controller": foo.Name,
 		},
 	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
 	}
 	// TODO: Prefer using podLister to reduce the call to K8s API.
-	pList, _ := c.kubeclientset.CoreV1().Pods(tpod.Namespace).List(context.TODO(), listOptions)
+	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
 
-	if err := c.syncHandler(tpod, pList); err != nil {
-		klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", tpod.Name, err.Error())
+	if err := c.syncHandler(foo, podsList); err != nil {
+		klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", foo.Name, err.Error())
 		return false
 	}
 
@@ -221,50 +221,50 @@ func (c *Controller) processNextWorkItem() bool {
 }
 
 // total number of 'Running' pods
-func (c *Controller) totalRunningPods(tpod *v1alpha1.Kluster) int {
+func (c *Controller) totalPodsUp(foo *v1alpha1.Kluster) int {
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{
-			"controller": tpod.Name,
+			"controller": foo.Name,
 		},
 	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
 	}
 	// TODO: Prefer using podLister to reduce the call to K8s API.
-	pList, _ := c.kubeclientset.CoreV1().Pods(tpod.Namespace).List(context.TODO(), listOptions)
+	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
 
-	runningPods := 0
-	for _, pod := range pList.Items {
+	upPods := 0
+	for _, pod := range podsList.Items {
 		if pod.ObjectMeta.DeletionTimestamp.IsZero() && pod.Status.Phase == "Running" {
-			runningPods++
+			upPods++
 		}
 	}
-	return runningPods
+	return upPods
 }
 
 // syncHandler monitors the current state & if current != desired,
 // tries to meet the desired state.
-func (c *Controller) syncHandler(tpod *v1alpha1.Kluster, pList *corev1.PodList) error {
+func (c *Controller) syncHandler(foo *v1alpha1.Kluster, podsList *corev1.PodList) error {
 	var podCreate, podDelete bool
-	iterate := tpod.Spec.Count
+	iterate := foo.Spec.Count
 	deleteIterate := 0
-	runningPods := c.totalRunningPods(tpod)
-	// fmt.Println("Inside syncHandler >>>>>>>>>>>>>>>>>>>>> runningPods ----> ", runningPods)
-	// fmt.Println("======================> tpod.Count ::: ", tpod.Spec.Count)
+	upPods := c.totalPodsUp(foo)
+	// fmt.Println("Inside syncHandler >>>>>>>>>>>>>>>>>>>>> upPods ----> ", upPods)
+	// fmt.Println("======================> foo.Count ::: ", foo.Spec.Count)
 
-	if runningPods < tpod.Spec.Count {
-		if runningPods > 0 {
+	if upPods < foo.Spec.Count {
+		if upPods > 0 {
 			podDelete = true
 			podCreate = true
-			iterate = tpod.Spec.Count
-			deleteIterate = runningPods
+			iterate = foo.Spec.Count
+			deleteIterate = upPods
 		} else {
-			log.Printf("detected mismatch of replica count for CR %v!!!! expected: %v & have: %v\n\n\n", tpod.Name, tpod.Spec.Count, runningPods)
+			log.Printf("detected mismatch of replica count for CR %v!!!! expected: %v & have: %v\n\n\n", foo.Name, foo.Spec.Count, upPods)
 			podCreate = true
-			iterate = tpod.Spec.Count - runningPods
+			iterate = foo.Spec.Count - upPods
 		}
-	} else if runningPods > tpod.Spec.Count {
-		deleteIterate = runningPods - tpod.Spec.Count
+	} else if upPods > foo.Spec.Count {
+		deleteIterate = upPods - foo.Spec.Count
 		log.Printf("Deleting %v extra pods\n", deleteIterate)
 		podDelete = true
 	}
@@ -274,9 +274,9 @@ func (c *Controller) syncHandler(tpod *v1alpha1.Kluster, pList *corev1.PodList) 
 	if podDelete {
 		fmt.Println("did we enter here??")
 		for i := 0; i < deleteIterate; i++ {
-			err := c.kubeclientset.CoreV1().Pods(tpod.Namespace).Delete(context.TODO(), pList.Items[i].Name, metav1.DeleteOptions{})
+			err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Delete(context.TODO(), podsList.Items[i].Name, metav1.DeleteOptions{})
 			if err != nil {
-				log.Printf("Pod deletion failed for CR %v\n", tpod.Name)
+				log.Printf("Pod deletion failed for CR %v\n", foo.Name)
 				return err
 			}
 			fmt.Println()
@@ -286,7 +286,7 @@ func (c *Controller) syncHandler(tpod *v1alpha1.Kluster, pList *corev1.PodList) 
 	// Creates pod
 	if podCreate {
 		for i := 0; i < iterate; i++ {
-			nPod, err := c.kubeclientset.CoreV1().Pods(tpod.Namespace).Create(context.TODO(), newPod(tpod), metav1.CreateOptions{})
+			nPod, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), newPod(foo), metav1.CreateOptions{})
 			if err != nil {
 				if errors.IsAlreadyExists(err) {
 					// retry (might happen when the same named pod is created again)
@@ -425,17 +425,17 @@ func (c *Controller) dequeueFoo(obj interface{}) {
 }
 
 // Creates the new pod with the specified template
-func newPod(tpod *v1alpha1.Kluster) *corev1.Pod {
+func newPod(foo *v1alpha1.Kluster) *corev1.Pod {
 	labels := map[string]string{
-		"controller": tpod.Name,
+		"controller": foo.Name,
 	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:    labels,
-			Name:      fmt.Sprintf(tpod.Name + "-" + strconv.Itoa(rand.Intn(10000000))),
-			Namespace: tpod.Namespace,
+			Name:      fmt.Sprintf(foo.Name + "-" + strconv.Itoa(rand.Intn(10000000))),
+			Namespace: foo.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(tpod, v1alpha1.SchemeGroupVersion.WithKind("TrackPod")),
+				*metav1.NewControllerRef(foo, v1alpha1.SchemeGroupVersion.WithKind("TrackPod")),
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -446,7 +446,7 @@ func newPod(tpod *v1alpha1.Kluster) *corev1.Pod {
 					Env: []corev1.EnvVar{
 						{
 							Name:  "MESSAGE",
-							Value: tpod.Spec.Message,
+							Value: foo.Spec.Message,
 						},
 					},
 					Command: []string{
