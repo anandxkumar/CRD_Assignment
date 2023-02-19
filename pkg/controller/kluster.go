@@ -243,60 +243,83 @@ func (c *Controller) totalPodsUp(foo *v1alpha1.Kluster) int {
 // syncHandler monitors the current state & if current != desired,
 // tries to meet the desired state.
 func (c *Controller) syncHandler(foo *v1alpha1.Kluster, podsList *corev1.PodList) error {
-	var podCreate, podDelete bool
-	iterate := foo.Spec.Count
-	deleteIterate := 0
+
+	// number of pods up for foo
 	upPods := c.totalPodsUp(foo)
-	// fmt.Println("Inside syncHandler >>>>>>>>>>>>>>>>>>>>> upPods ----> ", upPods)
-	// fmt.Println("======================> foo.Count ::: ", foo.Spec.Count)
 
-	if upPods < foo.Spec.Count {
-		if upPods > 0 {
-			podDelete = true
-			podCreate = true
-			iterate = foo.Spec.Count
-			deleteIterate = upPods
-		} else {
-			log.Printf("detected mismatch of replica count for CR %v!!!! expected: %v & have: %v\n\n\n", foo.Name, foo.Spec.Count, upPods)
-			podCreate = true
-			iterate = foo.Spec.Count - upPods
+	// desired number of pods for foo
+	desiredPods := foo.Spec.Count
+
+	// If number of upPods lower than desired Pods
+	if upPods < desiredPods {
+		noPodsCreate := desiredPods - upPods
+		log.Printf("Number of upPods lower than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
+
+		// Creating desired number of pods
+		for i := 0; i < noPodsCreate; i++ {
+			podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), newPod(foo), metav1.CreateOptions{})
+			if err != nil {
+				if errors.IsAlreadyExists(err) {
+					// So we try to create another pod with different name
+					noPodsCreate++
+				} else {
+					return err
+				}
+			} else {
+				log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, foo.Name)
+			}
+
 		}
-	} else if upPods > foo.Spec.Count {
-		deleteIterate = upPods - foo.Spec.Count
-		log.Printf("Deleting %v extra pods\n", deleteIterate)
-		podDelete = true
-	}
 
-	// Delete extra pod
-	if podDelete {
-		fmt.Println("did we enter here??")
-		for i := 0; i < deleteIterate; i++ {
+		log.Printf("Successfully created %v Pods for CR %v \n", desiredPods-upPods, foo.Name)
+
+		// If number of upPods greater than desired Pods
+	} else if upPods > desiredPods {
+		noPodsDelete := upPods - desiredPods
+		log.Printf("Number of upPods greater than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
+
+		for i := 0; i < noPodsDelete; i++ {
+			currDeletePod := podsList.Items[i].Name
 			err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Delete(context.TODO(), podsList.Items[i].Name, metav1.DeleteOptions{})
 			if err != nil {
 				log.Printf("Pod deletion failed for CR %v\n", foo.Name)
 				return err
 			}
-			fmt.Println()
+			log.Printf("Successfully deleted %v Pod for CR %v \n", currDeletePod, foo.Name)
 		}
+		log.Printf("Successfully deleted %v Pods for CR %v \n", noPodsDelete, foo.Name)
 	}
 
+	// Delete extra pod
+	// if podDelete {
+	// 	log.Println("did we enter here??")
+	// 	for i := 0; i < deleteIterate; i++ {
+	// 		err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Delete(context.TODO(), podsList.Items[i].Name, metav1.DeleteOptions{})
+	// 		if err != nil {
+	// 			log.Printf("Pod deletion failed for CR %v\n", foo.Name)
+	// 			return err
+	// 		}
+	// 		log.Println("Extra Pods ")
+	// 	}
+	// }
+
 	// Creates pod
-	if podCreate {
-		for i := 0; i < iterate; i++ {
-			nPod, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), newPod(foo), metav1.CreateOptions{})
-			if err != nil {
-				if errors.IsAlreadyExists(err) {
-					// retry (might happen when the same named pod is created again)
-					iterate++
-				} else {
-					return err
-				}
-			}
-			if nPod.Name != "" {
-				log.Printf("Pod %v created successfully!\n", nPod.Name)
-			}
-		}
-	}
+	// if podCreate {
+	// 	for i := 0; i < iterate; i++ {
+	// 		nPod, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), newPod(foo), metav1.CreateOptions{})
+	// 		if err != nil {
+	// 			if errors.IsAlreadyExists(err) {
+	// 				// retry (might happen when the same named pod is created again)
+	// 				iterate++
+	// 			} else {
+	// 				return err
+	// 			}
+	// 		}
+	// 		if nPod.Name != "" {
+	// 			log.Printf("Pod %v created successfully!\n", nPod.Name)
+	// 		}
+	// 	}
+	// }
 
 	return nil
 }
