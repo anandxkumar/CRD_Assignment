@@ -58,10 +58,14 @@ func Resource(resource string) schema.GroupResource {
 ## Running Controller
 
 - `go build && ./kluster` or `go run main.go`
+- In home directory there is a `object.yaml`, it will create, update or delete the Custom Resource of the CRD we created.
+Following are the things we can do with the object:
+- If we want to create a new object, we can specify the name of CR and count of the number of pods of the CR and run `kubectl create -f objects.yaml`. That number of pods will get running up for that CR.
+- If we want to update the number of pods or message, just make the changes in the `objects.yaml` file and then run `kubectl apply -f objects.yaml`. Depending on the current running pods and the desired pods, the required number of pods will get created or deleted accordingly. To check pods `kubectl get pods` and to check content of pods `kubectl describe kluster` 
+
+For deleting a CR
+- `kubectl delete -f object.yml`, this will make sure all the associated pods are deleted as well.
 
 For deleting a pod
 - `kubectl delete pod {podname}`
 After deleting the pod, they won't spawn back
-
-For deleting a CR
-- `kubectl delete -f object.yml` 
