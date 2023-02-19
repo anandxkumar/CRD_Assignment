@@ -54,3 +54,14 @@ func Resource(resource string) schema.GroupResource {
 }
 ```
 
+
+## Running Controller
+
+- `go build && ./kluster` or `go run main.go`
+
+For deleting a pod
+- `kubectl delete pod {podname}`
+After deleting the pod, they won't spawn back
+
+For deleting a CR
+- `kubectl delete -f object.yml` 

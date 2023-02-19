@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,7 +24,6 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/anandxkumar/kluster/pkg/apis/ak.dev/v1alpha1"
-	samplev1alpha1 "github.com/anandxkumar/kluster/pkg/apis/ak.dev/v1alpha1"
 	clientset "github.com/anandxkumar/kluster/pkg/client/clientset/versioned"
 	samplescheme "github.com/anandxkumar/kluster/pkg/client/clientset/versioned/scheme"
 	informers "github.com/anandxkumar/kluster/pkg/client/informers/externalversions/ak.dev/v1alpha1"
@@ -175,13 +173,13 @@ func (c *Controller) runWorker() {
 // processNextWorkItem will read a single work item off the workqueue and
 // attempt to process it, by calling the syncHandler.
 func (c *Controller) processNextWorkItem() bool {
-	item, shutdown := c.workqueue.Get()
+	item, shutdown := c.workqueue.Get() // Get the item from workqueue
 	if shutdown {
 		klog.Info("Shutting down")
 		return false
 	}
 
-	defer c.workqueue.Forget(item)
+	defer c.workqueue.Forget(item) // prevent item to reenter queue at the end of the function
 	key, err := cache.MetaNamespaceKeyFunc(item)
 	if err != nil {
 		klog.Errorf("error while calling Namespace Key func on cache for item %s: %s", item, err.Error())
@@ -270,7 +268,6 @@ func (c *Controller) syncHandler(foo *v1alpha1.Kluster, podsList *corev1.PodList
 	}
 
 	// Delete extra pod
-	// TODO: Detect the manually created pod, and delete that specific pod.
 	if podDelete {
 		fmt.Println("did we enter here??")
 		for i := 0; i < deleteIterate; i++ {
@@ -409,6 +406,7 @@ func (c *Controller) enqueueFoo(obj interface{}) {
 	// 	utilruntime.HandleError(err)
 	// 	return
 	// }
+
 	log.Println("enqueueFoo called !!!")
 	c.workqueue.Add(obj)
 }
@@ -467,90 +465,80 @@ func newPod(foo *v1alpha1.Kluster) *corev1.Pod {
 // objects metadata.ownerReferences field for an appropriate OwnerReference.
 // It then enqueues that Foo resource to be processed. If the object does not
 // have an appropriate OwnerReference, it will simply be skipped.
-func (c *Controller) handleObject(obj interface{}) {
-	var object metav1.Object
-	var ok bool
-	if object, ok = obj.(metav1.Object); !ok {
-		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
-		if !ok {
-			utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
-			return
-		}
-		object, ok = tombstone.Obj.(metav1.Object)
-		if !ok {
-			utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
-			return
-		}
-		klog.V(4).Infof("Recovered deleted object '%s' from tombstone", object.GetName())
-	}
-	klog.V(4).Infof("Processing object: %s", object.GetName())
-	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
-		// If this object is not owned by a Foo, we should not do anything more
-		// with it.
-		if ownerRef.Kind != "Foo" {
-			return
-		}
+// func (c *Controller) handleObject(obj interface{}) {
+// 	var object metav1.Object
+// 	var ok bool
+// 	if object, ok = obj.(metav1.Object); !ok {
+// 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+// 		if !ok {
+// 			utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
+// 			return
+// 		}
+// 		object, ok = tombstone.Obj.(metav1.Object)
+// 		if !ok {
+// 			utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
+// 			return
+// 		}
+// 		klog.V(4).Infof("Recovered deleted object '%s' from tombstone", object.GetName())
+// 	}
+// 	klog.V(4).Infof("Processing object: %s", object.GetName())
+// 	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
+// 		// If this object is not owned by a Foo, we should not do anything more
+// 		// with it.
+// 		if ownerRef.Kind != "Foo" {
+// 			return
+// 		}
 
-		foo, err := c.foosLister.Klusters(object.GetNamespace()).Get(ownerRef.Name)
-		if err != nil {
-			klog.V(4).Infof("ignoring orphaned object '%s/%s' of foo '%s'", object.GetNamespace(), object.GetName(), ownerRef.Name)
-			return
-		}
+// 		foo, err := c.foosLister.Klusters(object.GetNamespace()).Get(ownerRef.Name)
+// 		if err != nil {
+// 			klog.V(4).Infof("ignoring orphaned object '%s/%s' of foo '%s'", object.GetNamespace(), object.GetName(), ownerRef.Name)
+// 			return
+// 		}
 
-		c.enqueueFoo(foo)
-		return
-	}
-}
+// 		c.enqueueFoo(foo)
+// 		return
+// 	}
+// }
 
-func (c *Controller) handleAdd(obj interface{}) {
-	log.Println("handleAdd is here!!!")
-	c.workqueue.Add(obj)
-}
-
-func (c *Controller) handleDel(obj interface{}) {
-	log.Println("handleDel is here!!")
-	c.workqueue.Done(obj)
-}
-
-// newDeployment creates a new Deployment for a Foo resource. It also sets
-// the appropriate OwnerReferences on the resource so handleObject can discover
-// the Foo resource that 'owns' it.
-func newDeployment(foo *samplev1alpha1.Kluster) *appsv1.Deployment {
-	fmt.Println(foo.Spec.Count, " ", foo.Spec.Count)
-	fmt.Println()
-	var repl int32 = 4
-	address := &repl
-	fmt.Println(address, " :address: ", *address)
-	labels := map[string]string{
-		"app":        "nginx",
-		"controller": foo.Name,
-	}
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cluster4",
-			Namespace: foo.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(foo, samplev1alpha1.SchemeGroupVersion.WithKind("Kluster")),
-			},
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: address,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "nginx",
-							Image: "nginx:latest",
-						},
-					},
-				},
-			},
-		},
-	}
-}
+// // newDeployment creates a new Deployment for a Foo resource. It also sets
+// // the appropriate OwnerReferences on the resource so handleObject can discover
+// // the Foo resource that 'owns' it.
+// func newDeployment(foo *samplev1alpha1.Kluster) *appsv1.Deployment {
+// 	fmt.Println(foo.Spec.Count, " ", foo.Spec.Count)
+// 	fmt.Println()
+// 	var repl int32 = 4
+// 	address := &repl
+// 	fmt.Println(address, " :address: ", *address)
+// 	labels := map[string]string{
+// 		"app":        "nginx",
+// 		"controller": foo.Name,
+// 	}
+// 	return &appsv1.Deployment{
+// 		ObjectMeta: metav1.ObjectMeta{
+// 			Name:      "cluster4",
+// 			Namespace: foo.Namespace,
+// 			OwnerReferences: []metav1.OwnerReference{
+// 				*metav1.NewControllerRef(foo, samplev1alpha1.SchemeGroupVersion.WithKind("Kluster")),
+// 			},
+// 		},
+// 		Spec: appsv1.DeploymentSpec{
+// 			Replicas: address,
+// 			Selector: &metav1.LabelSelector{
+// 				MatchLabels: labels,
+// 			},
+// 			Template: corev1.PodTemplateSpec{
+// 				ObjectMeta: metav1.ObjectMeta{
+// 					Labels: labels,
+// 				},
+// 				Spec: corev1.PodSpec{
+// 					Containers: []corev1.Container{
+// 						{
+// 							Name:  "nginx",
+// 							Image: "nginx:latest",
+// 						},
+// 					},
+// 				},
+// 			},
+// 		},
+// 	}
+// }
