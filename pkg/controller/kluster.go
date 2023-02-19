@@ -106,30 +106,110 @@ func NewController(
 			}
 			controller.enqueueFoo(new)
 		},
-		DeleteFunc: controller.dequeueFoo,
+		// DeleteFunc: func(obj interface{}) {
+		// 	unstructuredObj := obj.(*unstructured.Unstructured)
+		// 	name := unstructuredObj.GetName()
+		// 	namespace := unstructuredObj.GetNamespace()
+		// 	fmt.Printf("Deleting pods for custom resource %s/%s\n", namespace, name)
+		// 	deletePodsForCustomResource(kubeclientset, name, namespace)
+		// },
+		DeleteFunc: func(obj interface{}) {
+			controller.dequeueFoo(obj)
+		},
 	})
-	// Set up an event handler for when Deployment resources change. This
-	// handler will lookup the owner of the given Deployment, and if it is
-	// owned by a Foo resource then the handler will enqueue that Foo resource for
-	// processing. This way, we don't need to implement custom logic for
-	// handling Deployment resources. More info on this pattern:
-	// https://github.com/kubernetes/community/blob/8cafef897a22026d42f5e5bb3f104febe7e29830/contributors/devel/controllers.md
-	// deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-	// 	AddFunc: controller.handleObject,
-	// 	UpdateFunc: func(old, new interface{}) {
-	// 		newDepl := new.(*appsv1.Deployment)
-	// 		oldDepl := old.(*appsv1.Deployment)
-	// 		if newDepl.ResourceVersion == oldDepl.ResourceVersion {
-	// 			// Periodic resync will send update events for all known Deployments.
-	// 			// Two different versions of the same Deployment will always have different RVs.
-	// 			return
-	// 		}
-	// 		controller.handleObject(new)
-	// 	},
-	// 	DeleteFunc: controller.handleDel,
-	// })
 
 	return controller
+}
+
+func (c *Controller) dequeueFoo(obj interface{}) {
+	// var key string
+	// var err error
+	// if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+	// 	utilruntime.HandleError(err)
+	// 	return
+	// }
+	log.Println("dequeueFoo called !!!")
+
+	// unstructuredObj := obj.(*unstructured.Unstructured)
+	// name := unstructuredObj.GetName()
+	// ns := unstructuredObj.GetNamespace()
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		klog.Errorf("error while calling Namespace Key func on cache for item %s: %s", obj, err.Error())
+		return
+	}
+
+	log.Println("Key: ", key)
+
+	ns, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		klog.Errorf("error while splitting key into namespace & name: %s", err.Error())
+		return
+	}
+	log.Println("ns: ", ns, "name: ", name)
+
+	// foo, err := c.foosLister.Klusters(ns).Get(name)
+
+	// log.Println("Foo: ", foo)
+
+	// if err != nil {
+	// 	klog.Errorf("error %s, Getting the foo resource from lister.", err.Error())
+	// 	return
+	// }
+
+	// print("FOO COUNT OLD: ", foo.Spec.Count)
+	// foo.Spec.Count = 0
+
+	// filter out if required pods are already available or not:
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller": name,
+		},
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+	// TODO: Prefer using podLister to reduce the call to K8s API.
+	podsList, err := c.kubeclientset.CoreV1().Pods(ns).List(context.TODO(), listOptions)
+	if err != nil {
+		fmt.Printf("Error listing pods for custom resource %s/%s: %v\n", ns, name, err)
+		return
+	}
+
+	for _, pod := range podsList.Items {
+		fmt.Printf("Deleting pod %s/%s\n", pod.Namespace, pod.Name)
+		err = c.kubeclientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{
+			GracePeriodSeconds: new(int64), // Immediately delete the pod
+		})
+		if err != nil {
+			fmt.Printf("Error deleting pod %s/%s: %v\n", pod.Namespace, pod.Name, err)
+		}
+	}
+
+	// item := obj.(*v1alpha1.Kluster)
+
+	// c.workqueue.Add(obj)
+}
+
+// deletePodsForCustomResource deletes all the pods associated with a custom resource
+func deletePodsForCustomResource(clientset *kubernetes.Clientset, customResourceName, customResourceNamespace string) {
+	podList, err := clientset.CoreV1().Pods(customResourceNamespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app=%s", customResourceName),
+	})
+
+	if err != nil {
+		fmt.Printf("Error listing pods for custom resource %s/%s: %v\n", customResourceNamespace, customResourceName, err)
+		return
+	}
+	for _, pod := range podList.Items {
+		fmt.Printf("Deleting pod %s/%s\n", pod.Namespace, pod.Name)
+		err = clientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{
+			GracePeriodSeconds: new(int64), // Immediately delete the pod
+		})
+		if err != nil {
+			fmt.Printf("Error deleting pod %s/%s: %v\n", pod.Namespace, pod.Name, err)
+		}
+	}
 }
 
 // Run will set up the event handlers for types we are interested in, as well
@@ -257,7 +337,7 @@ func (c *Controller) syncHandler(foo *v1alpha1.Kluster, podsList *corev1.PodList
 
 		// Creating desired number of pods
 		for i := 0; i < noPodsCreate; i++ {
-			podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), newPod(foo), metav1.CreateOptions{})
+			podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), createPod(foo), metav1.CreateOptions{})
 			if err != nil {
 				if errors.IsAlreadyExists(err) {
 					// So we try to create another pod with different name
@@ -290,134 +370,8 @@ func (c *Controller) syncHandler(foo *v1alpha1.Kluster, podsList *corev1.PodList
 		log.Printf("Successfully deleted %v Pods for CR %v \n", noPodsDelete, foo.Name)
 	}
 
-	// Delete extra pod
-	// if podDelete {
-	// 	log.Println("did we enter here??")
-	// 	for i := 0; i < deleteIterate; i++ {
-	// 		err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Delete(context.TODO(), podsList.Items[i].Name, metav1.DeleteOptions{})
-	// 		if err != nil {
-	// 			log.Printf("Pod deletion failed for CR %v\n", foo.Name)
-	// 			return err
-	// 		}
-	// 		log.Println("Extra Pods ")
-	// 	}
-	// }
-
-	// Creates pod
-	// if podCreate {
-	// 	for i := 0; i < iterate; i++ {
-	// 		nPod, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), newPod(foo), metav1.CreateOptions{})
-	// 		if err != nil {
-	// 			if errors.IsAlreadyExists(err) {
-	// 				// retry (might happen when the same named pod is created again)
-	// 				iterate++
-	// 			} else {
-	// 				return err
-	// 			}
-	// 		}
-	// 		if nPod.Name != "" {
-	// 			log.Printf("Pod %v created successfully!\n", nPod.Name)
-	// 		}
-	// 	}
-	// }
-
 	return nil
 }
-
-// syncHandler compares the actual state with the desired, and attempts to
-// converge the two. It then updates the Status block of the Foo resource
-// with the current status of the resource.
-// func (c *Controller) syncHandler(key string) error {
-// 	// Convert the namespace/name string into a distinct namespace and name
-// 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
-// 	if err != nil {
-// 		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
-// 		return nil
-// 	}
-
-// 	// Get the Foo resource with this namespace/name
-// 	foo, err := c.foosLister.Klusters(namespace).Get(name)
-// 	if err != nil {
-// 		// The Foo resource may no longer exist, in which case we stop
-// 		// processing.
-// 		if errors.IsNotFound(err) {
-// 			utilruntime.HandleError(fmt.Errorf("foo '%s' in work queue no longer exists", key))
-// 			return nil
-// 		}
-
-// 		return err
-// 	}
-
-// 	message := foo.Spec.Message
-// 	if message == "" {
-// 		// We choose to absorb the error here as the worker would requeue the
-// 		// resource otherwise. Instead, the next time the resource is updated
-// 		// the resource will be queued again.
-// 		utilruntime.HandleError(fmt.Errorf("%s: deployment name must be specified", key))
-// 		return nil
-// 	}
-
-// 	// Get the deployment with the name specified in Foo.spec
-// 	deployment, err := c.deploymentsLister.Deployments(foo.Namespace).Get(message)
-// 	// If the resource doesn't exist, we'll create it
-// 	if errors.IsNotFound(err) {
-// 		deployment, err = c.kubeclientset.AppsV1().Deployments(foo.Namespace).Create(context.TODO(), newDeployment(foo), metav1.CreateOptions{})
-// 	}
-
-// 	// If an error occurs during Get/Create, we'll requeue the item so we can
-// 	// attempt processing again later. This could have been caused by a
-// 	// temporary network failure, or any other transient reason.
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	// If the Deployment is not controlled by this Foo resource, we should log
-// 	// a warning to the event recorder and return error msg.
-// 	if !metav1.IsControlledBy(deployment, foo) {
-// 		msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
-// 		c.recorder.Event(foo, corev1.EventTypeWarning, ErrResourceExists, msg)
-// 		return fmt.Errorf("%s", msg)
-// 	}
-
-// 	// If this number of the replicas on the Foo resource is specified, and the
-// 	// number does not equal the current desired replicas on the Deployment, we
-// 	// should update the Deployment resource.
-// 	if foo.Spec.Count != nil && *foo.Spec.Count != *deployment.Spec.Replicas {
-// 		klog.V(4).Infof("Foo %s replicas: %d, deployment replicas: %d", name, *foo.Spec.Count, *deployment.Spec.Replicas)
-// 		deployment, err = c.kubeclientset.AppsV1().Deployments(foo.Namespace).Update(context.TODO(), newDeployment(foo), metav1.UpdateOptions{})
-// 	}
-
-// 	// If an error occurs during Update, we'll requeue the item so we can
-// 	// attempt processing again later. This could have been caused by a
-// 	// temporary network failure, or any other transient reason.
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	// Finally, we update the status block of the Foo resource to reflect the
-// 	// current state of the world
-// 	// err = c.updateFooStatus(foo, deployment)
-// 	// if err != nil {
-// 	// 	return err
-// 	// }
-
-// 	c.recorder.Event(foo, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
-// 	return nil
-// }
-
-// func (c *Controller) updateFooStatus(foo *samplev1alpha1.Kluster, deployment *appsv1.Deployment) error {
-// 	// NEVER modify objects from the store. It's a read-only, local cache.
-// 	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-// 	// Or create a copy manually for better performance
-// 	fooCopy := foo.DeepCopy()
-// 	fooCopy.Spec.Count = deployment.Spec.Replicas
-// 	// If the CustomResourceSubresources feature gate is not enabled,
-// 	// we must use Update instead of UpdateStatus to update the Status block of the Foo resource.
-// 	// UpdateStatus will not allow changes to the Spec of the resource,
-// 	// which is ideal for ensuring nothing other than resource status has been updated.
-// 	_, err := c.sampleclientset.AkV1alpha1().Klusters(foo.Namespace).Update(context.TODO(), fooCopy, metav1.UpdateOptions{})
-// 	return err
-// }
 
 // enqueueFoo takes a Foo resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
@@ -434,19 +388,8 @@ func (c *Controller) enqueueFoo(obj interface{}) {
 	c.workqueue.Add(obj)
 }
 
-func (c *Controller) dequeueFoo(obj interface{}) {
-	// var key string
-	// var err error
-	// if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
-	// 	utilruntime.HandleError(err)
-	// 	return
-	// }
-	log.Println("dequeueFoo called !!!")
-	c.workqueue.Done(obj)
-}
-
 // Creates the new pod with the specified template
-func newPod(foo *v1alpha1.Kluster) *corev1.Pod {
+func createPod(foo *v1alpha1.Kluster) *corev1.Pod {
 	labels := map[string]string{
 		"controller": foo.Name,
 	}
@@ -456,7 +399,7 @@ func newPod(foo *v1alpha1.Kluster) *corev1.Pod {
 			Name:      fmt.Sprintf(foo.Name + "-" + strconv.Itoa(rand.Intn(10000000))),
 			Namespace: foo.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(foo, v1alpha1.SchemeGroupVersion.WithKind("TrackPod")),
+				*metav1.NewControllerRef(foo, v1alpha1.SchemeGroupVersion.WithKind("Kluster")),
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -482,86 +425,3 @@ func newPod(foo *v1alpha1.Kluster) *corev1.Pod {
 		},
 	}
 }
-
-// handleObject will take any resource implementing metav1.Object and attempt
-// to find the Foo resource that 'owns' it. It does this by looking at the
-// objects metadata.ownerReferences field for an appropriate OwnerReference.
-// It then enqueues that Foo resource to be processed. If the object does not
-// have an appropriate OwnerReference, it will simply be skipped.
-// func (c *Controller) handleObject(obj interface{}) {
-// 	var object metav1.Object
-// 	var ok bool
-// 	if object, ok = obj.(metav1.Object); !ok {
-// 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
-// 		if !ok {
-// 			utilruntime.HandleError(fmt.Errorf("error decoding object, invalid type"))
-// 			return
-// 		}
-// 		object, ok = tombstone.Obj.(metav1.Object)
-// 		if !ok {
-// 			utilruntime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
-// 			return
-// 		}
-// 		klog.V(4).Infof("Recovered deleted object '%s' from tombstone", object.GetName())
-// 	}
-// 	klog.V(4).Infof("Processing object: %s", object.GetName())
-// 	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
-// 		// If this object is not owned by a Foo, we should not do anything more
-// 		// with it.
-// 		if ownerRef.Kind != "Foo" {
-// 			return
-// 		}
-
-// 		foo, err := c.foosLister.Klusters(object.GetNamespace()).Get(ownerRef.Name)
-// 		if err != nil {
-// 			klog.V(4).Infof("ignoring orphaned object '%s/%s' of foo '%s'", object.GetNamespace(), object.GetName(), ownerRef.Name)
-// 			return
-// 		}
-
-// 		c.enqueueFoo(foo)
-// 		return
-// 	}
-// }
-
-// // newDeployment creates a new Deployment for a Foo resource. It also sets
-// // the appropriate OwnerReferences on the resource so handleObject can discover
-// // the Foo resource that 'owns' it.
-// func newDeployment(foo *samplev1alpha1.Kluster) *appsv1.Deployment {
-// 	fmt.Println(foo.Spec.Count, " ", foo.Spec.Count)
-// 	fmt.Println()
-// 	var repl int32 = 4
-// 	address := &repl
-// 	fmt.Println(address, " :address: ", *address)
-// 	labels := map[string]string{
-// 		"app":        "nginx",
-// 		"controller": foo.Name,
-// 	}
-// 	return &appsv1.Deployment{
-// 		ObjectMeta: metav1.ObjectMeta{
-// 			Name:      "cluster4",
-// 			Namespace: foo.Namespace,
-// 			OwnerReferences: []metav1.OwnerReference{
-// 				*metav1.NewControllerRef(foo, samplev1alpha1.SchemeGroupVersion.WithKind("Kluster")),
-// 			},
-// 		},
-// 		Spec: appsv1.DeploymentSpec{
-// 			Replicas: address,
-// 			Selector: &metav1.LabelSelector{
-// 				MatchLabels: labels,
-// 			},
-// 			Template: corev1.PodTemplateSpec{
-// 				ObjectMeta: metav1.ObjectMeta{
-// 					Labels: labels,
-// 				},
-// 				Spec: corev1.PodSpec{
-// 					Containers: []corev1.Container{
-// 						{
-// 							Name:  "nginx",
-// 							Image: "nginx:latest",
-// 						},
-// 					},
-// 				},
-// 			},
-// 		},
-// 	}
-// }
