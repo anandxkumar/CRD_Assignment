@@ -1,7 +1,7 @@
 apiVersion: "ak.dev/v1alpha1"
 kind: Kluster
 metadata:
-  name: demo
+  name: testdemo
 spec:
   message: "Demo Presentation"
   count: 2
