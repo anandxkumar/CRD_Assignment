@@ -27,7 +27,6 @@ import (
 	samplescheme "github.com/anandxkumar/kluster/pkg/client/clientset/versioned/scheme"
 	informers "github.com/anandxkumar/kluster/pkg/client/informers/externalversions/ak.dev/v1alpha1"
 	listers "github.com/anandxkumar/kluster/pkg/client/listers/ak.dev/v1alpha1"
-	appsinformers "k8s.io/client-go/informers/apps/v1"
 )
 
 const controllerAgentName = "kluster"
@@ -72,7 +71,6 @@ type Controller struct {
 func NewController(
 	kubeclientset kubernetes.Interface,
 	sampleclientset clientset.Interface,
-	deploymentInformer appsinformers.DeploymentInformer,
 	fooInformer informers.KlusterInformer) *Controller {
 
 	// Create event broadcaster

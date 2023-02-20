@@ -48,7 +48,6 @@ func main() {
 	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
 
 	controller := controller.NewController(kubeClient, exampleClient,
-		kubeInformerFactory.Apps().V1().Deployments(),
 		exampleInformerFactory.Ak().V1alpha1().Klusters())
 
 	stopCh := make(chan struct{})
