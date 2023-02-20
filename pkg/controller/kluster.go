@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	appsinformers "k8s.io/client-go/informers/apps/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -28,9 +27,10 @@ import (
 	samplescheme "github.com/anandxkumar/kluster/pkg/client/clientset/versioned/scheme"
 	informers "github.com/anandxkumar/kluster/pkg/client/informers/externalversions/ak.dev/v1alpha1"
 	listers "github.com/anandxkumar/kluster/pkg/client/listers/ak.dev/v1alpha1"
+	appsinformers "k8s.io/client-go/informers/apps/v1"
 )
 
-const controllerAgentName = "sample-controller"
+const controllerAgentName = "kluster"
 
 const (
 	// SuccessSynced is used as part of the Event 'reason' when a Foo is synced
@@ -113,70 +113,6 @@ func NewController(
 
 	return controller
 }
-
-func (c *Controller) deletePods(obj interface{}) {
-
-	log.Println("\nDeleting all pods for CR")
-
-	item := obj.(*v1alpha1.Kluster)
-	name := item.GetName()
-	namespace := item.GetNamespace()
-
-	// namespace, name, err := cache.SplitMetaNamespaceKey(key)
-	// if err != nil {
-	// 	klog.Errorf("error while splitting key into namespace & name: %s", err.Error())
-	// 	return
-	// }
-	log.Println("namespace: ", namespace, " | name: ", name)
-
-	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"controller": name,
-		},
-	}
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
-	}
-
-	podsList, err := c.kubeclientset.CoreV1().Pods(namespace).List(context.TODO(), listOptions)
-	if err != nil {
-		fmt.Printf("Error listing pods for custom resource %s/%s: %v\n", namespace, name, err)
-		return
-	}
-
-	for _, pod := range podsList.Items {
-		fmt.Printf("Deleting pod %s/%s\n", pod.Namespace, pod.Name)
-		err = c.kubeclientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{
-			GracePeriodSeconds: new(int64), // Immediately delete the pod
-		})
-		if err != nil {
-			fmt.Printf("Error deleting pod %s/%s: %v\n", pod.Namespace, pod.Name, err)
-		}
-	}
-	fmt.Printf("\n Deleted all pods of CR %v \n", name)
-
-}
-
-// deletePodsForCustomResource deletes all the pods associated with a custom resource
-// func deletePodsForCustomResource(clientset *kubernetes.Clientset, customResourceName, customResourceNamespace string) {
-// 	podList, err := clientset.CoreV1().Pods(customResourceNamespace).List(context.TODO(), metav1.ListOptions{
-// 		LabelSelector: fmt.Sprintf("app=%s", customResourceName),
-// 	})
-
-// 	if err != nil {
-// 		fmt.Printf("Error listing pods for custom resource %s/%s: %v\n", customResourceNamespace, customResourceName, err)
-// 		return
-// 	}
-// 	for _, pod := range podList.Items {
-// 		fmt.Printf("Deleting pod %s/%s\n", pod.Namespace, pod.Name)
-// 		err = clientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{
-// 			GracePeriodSeconds: new(int64), // Immediately delete the pod
-// 		})
-// 		if err != nil {
-// 			fmt.Printf("Error deleting pod %s/%s: %v\n", pod.Namespace, pod.Name, err)
-// 		}
-// 	}
-// }
 
 // Run will set up the event handlers for types we are interested in, as well
 // as syncing informer caches and starting workers. It will block until stopCh
@@ -339,6 +275,44 @@ func (c *Controller) syncHandler(foo *v1alpha1.Kluster, podsList *corev1.PodList
 func (c *Controller) enqueueFoo(obj interface{}) {
 	log.Println("\nCR added in the Workqueue")
 	c.workqueue.Add(obj)
+}
+
+func (c *Controller) deletePods(obj interface{}) {
+
+	log.Println("\nDeleting all pods for CR")
+
+	item := obj.(*v1alpha1.Kluster)
+	name := item.GetName()
+	namespace := item.GetNamespace()
+
+	log.Println("namespace: ", namespace, " | name: ", name)
+
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller": name,
+		},
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+
+	podsList, err := c.kubeclientset.CoreV1().Pods(namespace).List(context.TODO(), listOptions)
+	if err != nil {
+		fmt.Printf("Error listing pods for custom resource %s/%s: %v\n", namespace, name, err)
+		return
+	}
+
+	for _, pod := range podsList.Items {
+		fmt.Printf("Deleting pod %s/%s\n", pod.Namespace, pod.Name)
+		err = c.kubeclientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{
+			GracePeriodSeconds: new(int64), // Immediately delete the pod
+		})
+		if err != nil {
+			fmt.Printf("Error deleting pod %s/%s: %v\n", pod.Namespace, pod.Name, err)
+		}
+	}
+	fmt.Printf("\n Deleted all pods of CR %v \n", name)
+
 }
 
 // Creates the new pod with the specified template
